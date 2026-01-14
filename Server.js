@@ -6,16 +6,26 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 // --- 1. CONNECT TO TURSO DATABASE ---
-// We use Environment Variables for security (Set these in Render Dashboard!)
-const dbUrl = process.env.TURSO_DATABASE_URL;
+// We use Environment Variables for security
+let dbUrl = process.env.TURSO_DATABASE_URL;
 const dbToken = process.env.TURSO_AUTH_TOKEN;
 
 if (!dbUrl || !dbToken) {
   console.error("⚠️ WARNING: Turso variables (TURSO_DATABASE_URL / TURSO_AUTH_TOKEN) are missing.");
+} else {
+  // --- THE FIX ---
+  // If the URL starts with 'libsql://', we force it to 'https://'
+  // This fixes the "Unexpected status code 400" error on Koyeb/Render
+  if (dbUrl.startsWith('libsql://')) {
+    console.log("ℹ️ Auto-switching protocol from libsql:// to https:// for HTTP client compatibility.");
+    dbUrl = dbUrl.replace('libsql://', 'https://');
+  }
 }
 
 const turso = createClient({
-  url: dbUrl || 'libsql://dummy-url',
+  // We use the modified dbUrl here.
+  // Also updated the dummy fallback to 'https' just in case.
+  url: dbUrl || 'https://dummy-url',
   authToken: dbToken || 'dummy-token',
 });
 
@@ -71,7 +81,7 @@ app.post('/activate', async (req, res) => {
             console.log(`🆕 NEW USER ADDED! Key: ${key}`);
         } catch (insertError) {
             // Check if it failed because it's a duplicate
-            if (insertError.message && insertError.message.includes('UNIQUE constraint')) {
+            if (insertError.message && (insertError.message.includes('UNIQUE constraint') || insertError.message.includes('SQLITE_CONSTRAINT'))) {
                 console.log(`ℹ️ User already exists. Updating 'last_seen' timestamp.`);
                 // Optional: Update the last_seen time so you know they are still active
                 await turso.execute({
